@@ -7,6 +7,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UsersService } from '../users/users.service';
 import { ProductsService } from '../products/products.service';
 
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -38,7 +39,7 @@ export class OrdersService {
   async findByUser(userId: number): Promise<Order[]> {
     return this.ordersRepository.find({ 
       where: { userId },
-      relations: ['items', 'items.product'],
+      relations: ['user', 'items', 'items.product'],
     });
   }
 
@@ -67,7 +68,7 @@ export class OrdersService {
       });
       
       await this.orderItemsRepository.save(orderItem);
-      total = product.price * itemDto.quantity;
+      total += product.price * itemDto.quantity;
       await this.productsService.updateStock(product.id, product.stock - itemDto.quantity);
     }
     
@@ -77,11 +78,15 @@ export class OrdersService {
     return this.findOne(savedOrder.id);
   }
 
-  async updateStatus(id: number, status: OrderStatus): Promise<Order> {
-    const order = await this.findOne(id);
-    order.status = status;
-    return this.ordersRepository.save(order);
+ async updateStatus(id: number, status: OrderStatus): Promise<Order> {
+  if (!Object.values(OrderStatus).includes(status)) {
+    throw new BadRequestException('Invalid order status');
   }
+
+  const order = await this.findOne(id);
+  order.status = status;
+  return this.ordersRepository.save(order);
+}
 
   async cancel(id: number): Promise<Order> {
     const order = await this.findOne(id);
@@ -91,9 +96,13 @@ export class OrdersService {
     }
     
     for (const item of order.items) {
-      const product = await this.productsService.findOne(item.productId);
-      await this.productsService.updateStock(product.id, item.quantity);
-    }
+    const product = await this.productsService.findOne(item.productId);
+    await this.productsService.updateStock(
+    product.id,
+    product.stock + item.quantity,
+  );
+}
+
     
     order.status = OrderStatus.CANCELLED;
     return this.ordersRepository.save(order);
